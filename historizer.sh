@@ -28,6 +28,7 @@ Options:
   -h, --help          Show this help.
 
 Configuration (later overrides earlier):
+  <script-dir>/config
   ~/.config/historizer/config
   <repo-root>/.historizer
   env: HISTORIZER_SUFFIX, HISTORIZER_BASE
