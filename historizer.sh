@@ -24,7 +24,8 @@ Options:
   -s, --status        Dry run: print plan, change nothing.
       --suffix SUFFIX Suffix for the mirror branch (default: history).
                       Mirror branch name is "<current>-<SUFFIX>".
-      --base BRANCH   Base branch the squash sits on top of (default: main).
+      --base REF      Base ref the squash sits on top of (default: the
+                      current branch's upstream, e.g. origin/<current>).
   -h, --help          Show this help.
 
 Configuration (later overrides earlier):
@@ -36,7 +37,6 @@ Configuration (later overrides earlier):
 
 Config file (sourced as bash):
   suffix=history
-  base=develop
 EOF
       exit 0
       ;;
@@ -46,7 +46,10 @@ EOF
 done
 
 suffix="history"
-base="main"
+base=""
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+[[ -f "$script_dir/config" ]] && source "$script_dir/config"
 
 global_config="${XDG_CONFIG_HOME:-$HOME/.config}/historizer/config"
 [[ -f "$global_config" ]] && source "$global_config"
@@ -66,20 +69,11 @@ if [[ -z "$suffix" ]]; then
   echo "historize: 'suffix' must not be empty." >&2
   exit 1
 fi
-if [[ -z "$base" ]]; then
-  echo "historize: 'base' must not be empty." >&2
-  exit 1
-fi
 
 current=$(git symbolic-ref --short HEAD 2>/dev/null) || {
   echo "historize: HEAD is detached." >&2
   exit 1
 }
-
-if [[ "$current" == "$base" ]]; then
-  echo "historize: refusing to run on the base branch '$base'." >&2
-  exit 1
-fi
 
 if [[ "$current" == *"-${suffix}" ]]; then
   echo "historize: refusing to run on '$current' (looks like a mirror branch)." >&2
@@ -88,8 +82,21 @@ fi
 
 mirror="${current}-${suffix}"
 
-if ! git rev-parse --verify --quiet "refs/heads/$base" >/dev/null; then
-  echo "historize: base branch '$base' does not exist locally." >&2
+if [[ -z "$base" ]]; then
+  base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || base=""
+  if [[ -z "$base" ]]; then
+    echo "historize: '$current' has no upstream set. Push the branch first (e.g. 'git push -u origin $current') or pass --base." >&2
+    exit 1
+  fi
+fi
+
+if [[ "$current" == "$base" ]]; then
+  echo "historize: refusing to run with base '$base' equal to current branch." >&2
+  exit 1
+fi
+
+if ! git rev-parse --verify --quiet "$base" >/dev/null; then
+  echo "historize: base ref '$base' does not resolve." >&2
   exit 1
 fi
 
@@ -107,7 +114,7 @@ marker_ref="refs/historizer/${current}/last-squash"
 if git show-ref --verify --quiet "$marker_ref"; then
   from_ref=$(git rev-parse --verify "$marker_ref")
 else
-  from_ref="$merge_base"
+  from_ref=$(git rev-parse "$base")
 fi
 
 mirror_exists=0
@@ -123,10 +130,10 @@ if [[ "$mode" == status ]]; then
   if (( mirror_exists )); then
     echo "Mirror:        $mirror @ $(git rev-parse --short "$mirror")"
   else
-    echo "Mirror:        $mirror (will be created at $(git rev-parse --short "$merge_base"))"
+    echo "Mirror:        $mirror (will be created at $base = $(git rev-parse --short "$base"))"
   fi
   echo "Base:          $base @ $(git rev-parse --short "$base")"
-  echo "Slug:          $suffix"
+  echo "Suffix:        $suffix"
   echo "Merge-base:    $(git rev-parse --short "$merge_base")"
   echo "Cherry-pick from: $(git rev-parse --short "$from_ref")"
   echo "Plan:"
@@ -146,8 +153,8 @@ if [[ "$mode" == status ]]; then
 fi
 
 if (( ! mirror_exists )); then
-  echo "Creating mirror branch '$mirror' at $(git rev-parse --short "$merge_base")..."
-  git branch "$mirror" "$merge_base"
+  echo "Creating mirror branch '$mirror' at $(git rev-parse --short "$base") (= $base)..."
+  git branch "$mirror" "$base"
 fi
 
 if [[ -z "$new_commits" ]]; then
