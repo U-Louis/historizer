@@ -1,6 +1,6 @@
 ## historizer: keep the current branch squashed to one commit on top of a base branch, while mirroring every individual commit onto a sibling
 
-"<current>-<slug>" branch (full history preserved).
+```<current>-<slug>``` branch (full history preserved).
 
 Idempotent. Tracks the last squashed commit at:
    refs/mirror-squash/<branch>/last-squash
