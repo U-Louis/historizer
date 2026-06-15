@@ -2,110 +2,111 @@
 
 set -uo pipefail
 
-cli_slug=""
+cli_suffix=""
 cli_base=""
 mode=run
 
 while (( $# )); do
   case "$1" in
     -s|--status) mode=status ;;
-    --slug)      cli_slug="${2:-}"; shift ;;
+    --suffix)      cli_suffix="${2:-}"; shift ;;
     --base)      cli_base="${2:-}"; shift ;;
     -h|--help)
       cat <<'EOF'
-Usage: mirror-squash.sh [options]
+Usage: historize [options]
 
   On the current branch:
-    1. Cherry-picks every commit added since the last squash onto
-       <current-branch>-<slug>, creating that branch if it doesn't exist.
+    1. Cherry-picks every commit not yet mirrored onto <current>-<suffix>,
+       creating that branch if it doesn't exist.
     2. Squashes the current branch back to one commit on top of <base>.
 
 Options:
   -s, --status        Dry run: print plan, change nothing.
-      --slug SLUG     Suffix for the mirror branch (default: history).
-                      Mirror branch name is "<current>-<SLUG>".
+      --suffix SUFFIX Suffix for the mirror branch (default: history).
+                      Mirror branch name is "<current>-<SUFFIX>".
       --base BRANCH   Base branch the squash sits on top of (default: main).
   -h, --help          Show this help.
 
 Configuration (later overrides earlier):
-  ~/.config/mirror-squash/config
-  <repo-root>/.mirror-squash
-  env: MIRROR_SQUASH_SLUG, MIRROR_SQUASH_BASE
-  flags: --slug, --base
+  ~/.config/historizer/config
+  <repo-root>/.historizer
+  env: HISTORIZER_SUFFIX, HISTORIZER_BASE
+  flags: --suffix, --base
 
 Config file (sourced as bash):
-  slug=history
+  suffix=history
   base=develop
 EOF
       exit 0
       ;;
-    *) echo "mirror-squash: unknown argument: $1" >&2; exit 2 ;;
+    *) echo "historize: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
 done
 
-slug="history"
+suffix="history"
 base="main"
 
-global_config="${XDG_CONFIG_HOME:-$HOME/.config}/mirror-squash/config"
+global_config="${XDG_CONFIG_HOME:-$HOME/.config}/historizer/config"
 [[ -f "$global_config" ]] && source "$global_config"
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-  echo "mirror-squash: not in a git repo." >&2
+  echo "historize: not in a git repo." >&2
   exit 1
 }
-[[ -f "$repo_root/.mirror-squash" ]] && source "$repo_root/.mirror-squash"
+[[ -f "$repo_root/.historizer" ]] && source "$repo_root/.historizer"
 
-slug="${MIRROR_SQUASH_SLUG:-$slug}"
-base="${MIRROR_SQUASH_BASE:-$base}"
-[[ -n "$cli_slug" ]] && slug="$cli_slug"
+suffix="${HISTORIZER_SUFFIX:-$suffix}"
+base="${HISTORIZER_BASE:-$base}"
+[[ -n "$cli_suffix" ]] && suffix="$cli_suffix"
 [[ -n "$cli_base" ]] && base="$cli_base"
 
-if [[ -z "$slug" ]]; then
-  echo "mirror-squash: 'slug' must not be empty." >&2
+if [[ -z "$suffix" ]]; then
+  echo "historize: 'suffix' must not be empty." >&2
   exit 1
 fi
 if [[ -z "$base" ]]; then
-  echo "mirror-squash: 'base' must not be empty." >&2
+  echo "historize: 'base' must not be empty." >&2
   exit 1
 fi
 
 current=$(git symbolic-ref --short HEAD 2>/dev/null) || {
-  echo "mirror-squash: HEAD is detached." >&2
+  echo "historize: HEAD is detached." >&2
   exit 1
 }
 
 if [[ "$current" == "$base" ]]; then
-  echo "mirror-squash: refusing to run on the base branch '$base'." >&2
+  echo "historize: refusing to run on the base branch '$base'." >&2
   exit 1
 fi
 
-if [[ "$current" == *"-${slug}" ]]; then
-  echo "mirror-squash: refusing to run on '$current' (looks like a mirror branch with suffix '-${slug}')." >&2
+if [[ "$current" == *"-${suffix}" ]]; then
+  echo "historize: refusing to run on '$current' (looks like a mirror branch)." >&2
   exit 1
 fi
 
-mirror="${current}-${slug}"
+mirror="${current}-${suffix}"
 
 if ! git rev-parse --verify --quiet "refs/heads/$base" >/dev/null; then
-  echo "mirror-squash: base branch '$base' does not exist locally." >&2
+  echo "historize: base branch '$base' does not exist locally." >&2
   exit 1
 fi
 
 if ! git diff --quiet HEAD --; then
-  echo "mirror-squash: working tree has uncommitted changes. Commit or stash first." >&2
+  echo "historize: working tree has uncommitted changes. Commit or stash first." >&2
   exit 1
 fi
 
 merge_base=$(git merge-base "$base" "$current") || {
-  echo "mirror-squash: cannot find merge-base between '$base' and '$current'." >&2
+  echo "historize: cannot find merge-base between '$base' and '$current'." >&2
   exit 1
 }
 
-marker_ref="refs/mirror-squash/${current}/last-squash"
-from_ref=""
+marker_ref="refs/historizer/${current}/last-squash"
 if git show-ref --verify --quiet "$marker_ref"; then
   from_ref=$(git rev-parse --verify "$marker_ref")
+else
+  from_ref="$merge_base"
 fi
 
 mirror_exists=0
@@ -113,11 +114,7 @@ if git show-ref --verify --quiet "refs/heads/$mirror"; then
   mirror_exists=1
 fi
 
-new_commits=""
-if (( mirror_exists )) && [[ -n "$from_ref" ]]; then
-  new_commits=$(git rev-list --reverse "${from_ref}..HEAD")
-fi
-
+new_commits=$(git rev-list --reverse "${from_ref}..HEAD")
 squash_count=$(git rev-list --count "${merge_base}..HEAD")
 
 if [[ "$mode" == status ]]; then
@@ -125,23 +122,15 @@ if [[ "$mode" == status ]]; then
   if (( mirror_exists )); then
     echo "Mirror:        $mirror @ $(git rev-parse --short "$mirror")"
   else
-    echo "Mirror:        $mirror (will be created)"
+    echo "Mirror:        $mirror (will be created at $(git rev-parse --short "$merge_base"))"
   fi
   echo "Base:          $base @ $(git rev-parse --short "$base")"
-  echo "Slug:          $slug"
+  echo "Slug:          $suffix"
   echo "Merge-base:    $(git rev-parse --short "$merge_base")"
-  if [[ -n "$from_ref" ]]; then
-    echo "Last squash:   $(git rev-parse --short "$from_ref")"
-  else
-    echo "Last squash:   (none yet)"
-  fi
+  echo "Cherry-pick from: $(git rev-parse --short "$from_ref")"
   echo "Plan:"
-  if (( ! mirror_exists )); then
-    echo "  - create '$mirror' at HEAD"
-  elif [[ -z "$from_ref" ]]; then
-    echo "  - mirror exists with no marker: only set marker, no cherry-pick"
-  elif [[ -z "$new_commits" ]]; then
-    echo "  - mirror is up to date: nothing to mirror"
+  if [[ -z "$new_commits" ]]; then
+    echo "  - nothing to cherry-pick onto '$mirror'"
   else
     n=$(printf '%s\n' "$new_commits" | wc -l | tr -d ' ')
     echo "  - cherry-pick $n commit(s) onto '$mirror':"
@@ -156,25 +145,25 @@ if [[ "$mode" == status ]]; then
 fi
 
 if (( ! mirror_exists )); then
-  echo "Creating mirror branch '$mirror' at HEAD..."
-  git branch "$mirror" "$current"
-elif [[ -z "$from_ref" ]]; then
-  echo "Mirror '$mirror' exists but no marker; assuming it's in sync."
-elif [[ -z "$new_commits" ]]; then
-  echo "Nothing new to mirror onto '$mirror'."
+  echo "Creating mirror branch '$mirror' at $(git rev-parse --short "$merge_base")..."
+  git branch "$mirror" "$merge_base"
+fi
+
+if [[ -z "$new_commits" ]]; then
+  echo "Nothing to cherry-pick onto '$mirror'."
 else
   count=$(printf '%s\n' "$new_commits" | wc -l | tr -d ' ')
-  echo "Mirroring $count commit(s) onto '$mirror'..."
+  echo "Cherry-picking $count commit(s) onto '$mirror'..."
   git checkout --quiet "$mirror"
   while IFS= read -r c; do
     [[ -z "$c" ]] && continue
     if ! git cherry-pick --allow-empty "$c"; then
       {
-        echo "mirror-squash: cherry-pick failed on '$mirror'."
+        echo "historize: cherry-pick failed on '$mirror'."
         echo "  Resolve, then run:"
         echo "    git cherry-pick --continue   (or --abort)"
         echo "    git checkout $current"
-        echo "    $0                            # re-run when ready"
+        echo "    historize                    # re-run when ready"
       } >&2
       exit 1
     fi
