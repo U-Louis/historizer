@@ -18,5 +18,7 @@ Idempotent. Tracks the last squashed commit at:
 
 # Usage:
    historize [--suffix SUFFIX] [--base BRANCH]
+   
    historize --status
+   
    historize --help
