@@ -10,7 +10,7 @@ Idempotent. Tracks the last squashed commit at:
    2. ~/.config/mirror-squash/config
    3. <repo-root>/.historizer
    4. Environment: HISTORIZER_SLUG, HISTORIZER_BASE
-   5. CLI flags: --slug <s>, --base <b>
+   5. CLI flags: ``--slug <s>``, ``--base <b>``
 
 # Config file format:
    slug=history
