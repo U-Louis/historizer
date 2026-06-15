@@ -1,22 +1,22 @@
 ## historizer: keep the current branch squashed to one commit on top of a base branch, while mirroring every individual commit onto a sibling
 
-```<current>-<slug>``` branch (full history preserved).
+`<current>-<suffix>` branch (full history preserved).
 
 Idempotent. Tracks the last squashed commit at:
-   refs/mirror-squash/<branch>/last-squash
+   refs/historizer/<branch>/last-squash
 
 # Configuration:
-   1. Built-in defaults: slug=history, base=main
-   2. ~/.config/mirror-squash/config
+   1. Built-in defaults: suffix=history, base=main
+   2. ~/.config/historizer/config
    3. <repo-root>/.historizer
-   4. Environment: HISTORIZER_SLUG, HISTORIZER_BASE
-   5. CLI flags: ``--slug <s>``, ``--base <b>``
+   4. Environment: HISTORIZER_SUFFIX, HISTORIZER_BASE
+   5. CLI flags: `--suffix <s>`, `--base <b>`
 
 # Config file format:
-   slug=history
+   suffix=history
    base=develop
 
 # Usage:
-   mirror-squash.sh [--slug SLUG] [--base BRANCH]
-   mirror-squash.sh --status
-   mirror-squash.sh --help
+   historize [--suffix SUFFIX] [--base BRANCH]
+   historize --status
+   historize --help
